@@ -1,0 +1,45 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:latest
+    container_name: postgres_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: avito-task
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql  # Подключаем init.sql
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: go_server
+    restart: always
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: avito-task
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: go_client
+    restart: always
+    depends_on:
+      - server
+
+volumes:
+  pg_data:

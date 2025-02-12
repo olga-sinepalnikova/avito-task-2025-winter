@@ -10,37 +10,157 @@
 package openapi
 
 import (
+	"errors"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+	"net/http"
 )
 
 type DefaultAPI struct {
+	DB       *gorm.DB
+	JWTToken []byte
 }
 
 // Post /api/auth
-// Аутентификация и получение JWT-токена. При первой аутентификации пользователь создается автоматически. 
+// Аутентификация и получение JWT-токена. При первой аутентификации пользователь создается автоматически.
 func (api *DefaultAPI) ApiAuthPost(c *gin.Context) {
-	// Your handler implementation
-	c.JSON(200, gin.H{"status": "OK"})
+	var req AuthRequest
+
+	// Пробуем разобрать JSON-тело запроса в структуру AuthRequest.
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	token, err := AuthOrRegisterUser(api.DB, req, api.JWTToken)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Возвращаем JWT-токен в ответе.
+	c.JSON(http.StatusOK, gin.H{"token": token})
+	//c.JSON(200, gin.H{"status": "OK"})
 }
 
 // Get /api/buy/:item
-// Купить предмет за монеты. 
+// Купить предмет за монеты.
 func (api *DefaultAPI) ApiBuyItemGet(c *gin.Context) {
-	// Your handler implementation
-	c.JSON(200, gin.H{"status": "OK"})
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var uid int
+	switch v := userIDVal.(type) {
+	case float64:
+		uid = int(v)
+	case int:
+		uid = v
+	default:
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user id"})
+		return
+	}
+
+	itemName := c.Param("item")
+	if itemName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Item parameter is required"})
+		return
+	}
+
+	err := api.DB.Transaction(func(tx *gorm.DB) error {
+		var product Products
+		if err := tx.Where("name = ?", itemName).First(&product).Error; err != nil {
+			return err
+		}
+
+		var user User
+		if err := tx.Where("id = ?", uid).First(&user).Error; err != nil {
+			return err
+		}
+
+		if user.Balance < product.Price {
+			return errors.New("not enough coins")
+		}
+
+		user.Balance -= product.Price
+		if err := tx.Save(&user).Error; err != nil {
+			return err
+		}
+
+		// Если запись для данного товара уже существует, увеличиваем количество, иначе создаём новую запись.
+		var inv Inventory
+		if err := tx.Where("user_id = ? AND item_type = ?", uid, product.Name).First(&inv).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				inv = Inventory{
+					UserID:   uid,
+					ItemType: product.Name,
+					Quantity: 1,
+				}
+				if err := tx.Create(&inv).Error; err != nil {
+					return err
+				}
+			} else {
+				return err
+			}
+		} else {
+			inv.Quantity++
+			if err := tx.Save(&inv).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "purchase successful"})
 }
 
 // Get /api/info
-// Получить информацию о монетах, инвентаре и истории транзакций. 
+// Получить информацию о монетах, инвентаре и истории транзакций.
 func (api *DefaultAPI) ApiInfoGet(c *gin.Context) {
-	// Your handler implementation
-	c.JSON(200, gin.H{"status": "OK"})
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var balance int
+	if err := api.DB.Model(&User{}).Where("id = ?", userID).Select("balance").Scan(&balance).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get balance"})
+		return
+	}
+
+	var inventory []Inventory
+	if err := api.DB.Model(&Inventory{}).Where("user_id = ?", userID).Select("item_type, quantity").Scan(&inventory).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get inventory"})
+		return
+	}
+
+	var inventoryResp = []InfoResponseInventoryInner{}
+	for _, item := range inventory {
+		inventoryResp = append(inventoryResp, InfoResponseInventoryInner{
+			Type:     item.ItemType,
+			Quantity: item.Quantity,
+		})
+	}
+
+	// Возвращаем ответ
+	c.JSON(http.StatusOK, InfoResponse{
+		Coins:     int32(balance),
+		Inventory: inventoryResp,
+	})
 }
 
 // Post /api/sendCoin
-// Отправить монеты другому пользователю. 
+// Отправить монеты другому пользователю.
 func (api *DefaultAPI) ApiSendCoinPost(c *gin.Context) {
 	// Your handler implementation
 	c.JSON(200, gin.H{"status": "OK"})
 }
-

@@ -9,17 +9,14 @@ import (
 
 func main() {
 	cfg := sw.NewConfiguration()
-	cfg.Host = "localhost:8080" // URL, где запущен ваш сервер
+	// URL, если запускаем в докере, то server, если на машине, то localhost
+	cfg.Host = "server:8080"
 
-	// Создаем экземпляр API клиента
 	apiClient := sw.NewAPIClient(cfg)
 
-	// Создаем контекст с таймаутом для запроса
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Пример вызова эндпоинта /api/info
-	// Название метода может отличаться в зависимости от генератора и настроек
 	infoRequest := apiClient.DefaultAPI.ApiInfoGet(ctx)
 	resp, httpResp, err := infoRequest.Execute()
 	if err != nil {

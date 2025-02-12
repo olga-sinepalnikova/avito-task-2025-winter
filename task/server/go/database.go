@@ -1,4 +1,4 @@
-package database
+package openapi
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 )
 
 // Connect осуществляет подключение к существующей базе данных.
-func Connect() {
+func ConnectToDatabase() *gorm.DB {
 	host := getEnv("DB_HOST", "localhost")
 	port := getEnv("DB_PORT", "5432")
 	user := getEnv("DB_USER", "postgres")
@@ -25,12 +25,13 @@ func Connect() {
 	}
 
 	// AutoMigrate добавит недостающие столбцы, но не удалит существующие данные.
-	err = db.AutoMigrate(&User{}, &Inventory{}, &CoinHistory{})
+	err = db.AutoMigrate(&User{}, &Inventory{}, &CoinHistory{}, &Products{})
 	if err != nil {
 		log.Fatalf("Ошибка при миграции моделей: %v", err)
 	}
 
 	log.Println("Соединение с базой данных установлено, модели синхронизированы.")
+	return db
 }
 
 // getEnv возвращает значение переменной окружения или значение по умолчанию, если переменная не задана.

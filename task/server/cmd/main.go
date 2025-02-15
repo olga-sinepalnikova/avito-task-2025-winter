@@ -38,10 +38,8 @@ func main() {
 	router.Use(api.AuthMiddleware())
 	{
 		router.GET("/api/info", api.ApiInfoGet)
-	}
-	router.Use(api.AuthMiddleware())
-	{
 		router.GET("/api/buy/:item", api.ApiBuyItemGet)
+		router.POST("/api/sendCoin", api.ApiSendCoinPost)
 	}
 	log.Fatal(router.Run(":8080"))
 }

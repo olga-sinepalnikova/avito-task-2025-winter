@@ -10,4 +10,4 @@ COPY . .
 
 RUN go build -o client ./cmd/main.go
 
-CMD ["./client"]
+RUN go test ./cmd/main.go -cover

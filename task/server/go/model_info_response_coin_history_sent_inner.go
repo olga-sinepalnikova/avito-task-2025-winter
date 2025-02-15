@@ -12,7 +12,7 @@ package openapi
 type InfoResponseCoinHistorySentInner struct {
 
 	// Имя пользователя, которому отправлены монеты.
-	ToUser string `json:"toUser,omitempty"`
+	ToUser string `json:"toUser,omitempty" gorm:"column:to_user"`
 
 	// Количество отправленных монет.
 	Amount int32 `json:"amount,omitempty"`

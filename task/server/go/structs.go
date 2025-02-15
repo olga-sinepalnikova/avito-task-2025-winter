@@ -6,7 +6,7 @@ type User struct {
 	ID           int    `gorm:"primaryKey;autoIncrement"`
 	Username     string `gorm:"unique;not null"`
 	PasswordHash string `gorm:"not null"`
-	Balance      int    `gorm:"default:0;check:balance >= 0"`
+	Balance      int    `gorm:"default:1000;check:balance >= 0"`
 }
 
 type Inventory struct {

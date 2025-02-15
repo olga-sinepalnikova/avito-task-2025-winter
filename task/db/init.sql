@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS inventory (
 );
 
 -- Создание таблицы истории переводов монет
-CREATE TABLE IF NOT EXISTS coin_history (
+CREATE TABLE IF NOT EXISTS coin_histories (
                                             id SERIAL PRIMARY KEY,
                                             from_user_id INT NOT NULL,
                                             to_user_id INT NOT NULL,

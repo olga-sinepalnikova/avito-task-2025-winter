@@ -13,7 +13,7 @@ services:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql  # Подключаем init.sql
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
 
   server:
     build:
@@ -33,12 +33,14 @@ services:
     depends_on:
       - db
 
-  client:
+  client_tests:
     build:
       context: ./client
       dockerfile: Dockerfile
-    container_name: go_client
+    container_name: go_client_tests
     restart: always
+    environment:
+      JWT_SECRET: I_wouldnt_do_this_in_real_project
     depends_on:
       - server
 

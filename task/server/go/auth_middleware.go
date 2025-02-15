@@ -55,7 +55,6 @@ func (api *DefaultAPI) parseJWT(tokenString string) (jwt.MapClaims, error) {
 		return nil, err
 	}
 
-	// Проверяем, валиден ли токен и содержит ли нужные claims
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
 		return claims, nil
 	}

@@ -11,9 +11,12 @@ package openapi
 
 import (
 	"context"
-	openapiclient "github.com/olgasinepalnikova/avito-task-2025-winter/client"
+	openapiclient "github.com/olgasinepalnikova/avito-task-2025-winter/client/go"
+	"github.com/olgasinepalnikova/avito-task-2025-winter/client/test/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"math/rand"
+	"strconv"
 	"testing"
 )
 
@@ -24,9 +27,12 @@ func Test_openapi_DefaultAPIService(t *testing.T) {
 
 	t.Run("Test DefaultAPIService ApiAuthPost", func(t *testing.T) {
 
-		t.Skip("skip test") // remove to run test
+		req := openapiclient.AuthRequest{
+			Username: "created user " + strconv.FormatInt(int64(rand.Int()), 10),
+			Password: "created password " + strconv.FormatInt(int64(rand.Int()), 10),
+		}
 
-		resp, httpRes, err := apiClient.DefaultAPI.ApiAuthPost(context.Background()).Execute()
+		resp, httpRes, err := apiClient.DefaultAPI.ApiAuthPost(context.Background()).AuthRequest(req).Execute()
 
 		require.Nil(t, err)
 		require.NotNil(t, resp)
@@ -36,9 +42,13 @@ func Test_openapi_DefaultAPIService(t *testing.T) {
 
 	t.Run("Test DefaultAPIService ApiBuyItemGet", func(t *testing.T) {
 
-		t.Skip("skip test") // remove to run test
+		jwtToken := helper.CreateUser(apiClient, t)
 
-		var item string
+		cfg := openapiclient.NewConfiguration()
+		cfg.DefaultHeader["Authorization"] = "Bearer " + jwtToken
+		apiClient := openapiclient.NewAPIClient(cfg)
+
+		var item = "pen"
 
 		httpRes, err := apiClient.DefaultAPI.ApiBuyItemGet(context.Background(), item).Execute()
 
@@ -49,21 +59,38 @@ func Test_openapi_DefaultAPIService(t *testing.T) {
 
 	t.Run("Test DefaultAPIService ApiInfoGet", func(t *testing.T) {
 
-		t.Skip("skip test") // remove to run test
+		jwtToken := helper.CreateUser(apiClient, t)
+
+		cfg := openapiclient.NewConfiguration()
+		cfg.DefaultHeader["Authorization"] = "Bearer " + jwtToken
+		apiClient := openapiclient.NewAPIClient(cfg)
 
 		resp, httpRes, err := apiClient.DefaultAPI.ApiInfoGet(context.Background()).Execute()
 
 		require.Nil(t, err)
 		require.NotNil(t, resp)
+		require.Equal(t, resp.GetCoins(), int32(1000))
 		assert.Equal(t, 200, httpRes.StatusCode)
 
 	})
 
 	t.Run("Test DefaultAPIService ApiSendCoinPost", func(t *testing.T) {
 
-		t.Skip("skip test") // remove to run test
+		jwtTokenUser1 := helper.CreateUser(apiClient, t)
+		jwtTokenUser2 := helper.CreateUser(apiClient, t)
+		user2, err := helper.ParseToken(jwtTokenUser2)
+		require.Nil(t, err)
 
-		httpRes, err := apiClient.DefaultAPI.ApiSendCoinPost(context.Background()).Execute()
+		cfg := openapiclient.NewConfiguration()
+		cfg.DefaultHeader["Authorization"] = "Bearer " + jwtTokenUser1
+		apiClient := openapiclient.NewAPIClient(cfg)
+
+		req := openapiclient.SendCoinRequest{
+			ToUser: user2,
+			Amount: 1000,
+		}
+
+		httpRes, err := apiClient.DefaultAPI.ApiSendCoinPost(context.Background()).SendCoinRequest(req).Execute()
 
 		require.Nil(t, err)
 		assert.Equal(t, 200, httpRes.StatusCode)

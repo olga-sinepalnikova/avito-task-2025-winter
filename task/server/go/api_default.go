@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"net/http"
+	"time"
 )
 
 type DefaultAPI struct {
@@ -26,7 +27,6 @@ type DefaultAPI struct {
 func (api *DefaultAPI) ApiAuthPost(c *gin.Context) {
 	var req AuthRequest
 
-	// Пробуем разобрать JSON-тело запроса в структуру AuthRequest.
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
@@ -40,7 +40,6 @@ func (api *DefaultAPI) ApiAuthPost(c *gin.Context) {
 
 	// Возвращаем JWT-токен в ответе.
 	c.JSON(http.StatusOK, gin.H{"token": token})
-	//c.JSON(200, gin.H{"status": "OK"})
 }
 
 // Get /api/buy/:item
@@ -131,19 +130,34 @@ func (api *DefaultAPI) ApiInfoGet(c *gin.Context) {
 		return
 	}
 
-	var balance int
-	if err := api.DB.Model(&User{}).Where("id = ?", userID).Select("balance").Scan(&balance).Error; err != nil {
+	switch v := userID.(type) {
+	case float64:
+		userID = int(v)
+	case int:
+		userID = v
+	default:
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user id"})
+		return
+	}
+
+	var user User
+	if err := api.DB.Table("users").
+		Where("id = ?", userID).
+		Scan(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get balance"})
 		return
 	}
 
 	var inventory []Inventory
-	if err := api.DB.Model(&Inventory{}).Where("user_id = ?", userID).Select("item_type, quantity").Scan(&inventory).Error; err != nil {
+	if err := api.DB.Model(&Inventory{}).
+		Where("user_id = ?", userID).
+		Select("item_type, quantity").
+		Find(&inventory).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get inventory"})
 		return
 	}
 
-	var inventoryResp = []InfoResponseInventoryInner{}
+	var inventoryResp []InfoResponseInventoryInner
 	for _, item := range inventory {
 		inventoryResp = append(inventoryResp, InfoResponseInventoryInner{
 			Type:     item.ItemType,
@@ -151,16 +165,116 @@ func (api *DefaultAPI) ApiInfoGet(c *gin.Context) {
 		})
 	}
 
-	// Возвращаем ответ
+	var coinReceivedHistory []InfoResponseCoinHistoryReceivedInner
+	if err := api.DB.Table("coin_histories").
+		Joins("JOIN users ON coin_histories.from_user_id = users.id").
+		Where("coin_histories.to_user_id = ?", userID).
+		Select("users.username as from_user, coin_histories.amount").
+		Find(&coinReceivedHistory).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get received coin history"})
+		return
+	}
+
+	var coinSentHistory []InfoResponseCoinHistorySentInner
+	if err := api.DB.Table("coin_histories").
+		Joins("JOIN users ON coin_histories.to_user_id = users.id").
+		Where("coin_histories.from_user_id = ?", userID).
+		Select("users.username as to_user, coin_histories.amount").
+		Find(&coinSentHistory).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get sent coin history"})
+		return
+	}
+
 	c.JSON(http.StatusOK, InfoResponse{
-		Coins:     int32(balance),
+		Coins:     int32(user.Balance),
 		Inventory: inventoryResp,
+		CoinHistory: InfoResponseCoinHistory{
+			Received: coinReceivedHistory,
+			Sent:     coinSentHistory,
+		},
 	})
 }
 
 // Post /api/sendCoin
 // Отправить монеты другому пользователю.
 func (api *DefaultAPI) ApiSendCoinPost(c *gin.Context) {
-	// Your handler implementation
-	c.JSON(200, gin.H{"status": "OK"})
+	userIDVal, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var senderID int
+	switch v := userIDVal.(type) {
+	case float64:
+		senderID = int(v)
+	case int:
+		senderID = v
+	default:
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user id"})
+		return
+	}
+
+	var req SendCoinRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	if req.Amount <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Amount must be greater than zero"})
+		return
+	}
+
+	err := api.DB.Transaction(func(tx *gorm.DB) error {
+		var sender User
+		if err := tx.Where("id = ?", senderID).First(&sender).Error; err != nil {
+			return err
+		}
+
+		if sender.Balance < int(req.Amount) {
+			return errors.New("not enough coins")
+		}
+
+		var receiver User
+		if err := tx.Where("username = ?", req.ToUser).First(&receiver).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("receiver not found")
+			}
+			return err
+		}
+
+		if sender.ID == receiver.ID {
+			return errors.New("sorry! You can't send coins to yourself")
+		}
+
+		sender.Balance -= int(req.Amount)
+		receiver.Balance += int(req.Amount)
+
+		if err := tx.Save(&sender).Error; err != nil {
+			return err
+		}
+		if err := tx.Save(&receiver).Error; err != nil {
+			return err
+		}
+
+		coinTransaction := CoinHistory{
+			FromUserID: sender.ID,
+			ToUserID:   receiver.ID,
+			Amount:     int(req.Amount),
+			Timestamp:  time.Now(),
+		}
+		if err := tx.Create(&coinTransaction).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "coins sent successfully"})
 }
